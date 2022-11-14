@@ -13,6 +13,9 @@ inputs:
   projectName:
     description: "The name of the Pages project to upload to"
     required: true
+  deploymentName:
+    description: "The name of the GitHub deployment"
+    required: true
   directory:
     description: "The directory of static assets to upload"
     required: true
@@ -21,6 +24,9 @@ inputs:
     required: false
   branch:
     description: "The name of the branch you want to deploy to"
+    required: false
+  commitDirty:
+    description: "Ignore uncommitted changes"
     required: false
 runs:
   using: "node16"

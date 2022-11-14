@@ -22066,8 +22066,9 @@ try {
   const projectName = (0, import_core.getInput)("projectName", { required: true });
   const directory = (0, import_core.getInput)("directory", { required: true });
   const gitHubToken = (0, import_core.getInput)("gitHubToken", { required: false });
-  const branch = (0, import_core.getInput)("branch", { required: false });
-  const octokit = (0, import_github.getOctokit)(gitHubToken);
+  const branch = (0, import_core.getInput)("branch", { required: false }) || import_process.env.GITHUB_REF_NAME;
+  const commitDirty = Boolean((0, import_core.getInput)("commitDirty", { required: false }));
+  const deploymentName = (0, import_core.getInput)("deploymentName", { required: false });
   const getProject = async () => {
     const response = await (0, import_undici.fetch)(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${projectName}`,
@@ -22083,7 +22084,7 @@ try {
       $ export CLOUDFLARE_ACCOUNT_ID="${accountId}"
     }
   
-    $$ npx wrangler@2 pages publish "${directory}" --project-name="${projectName}" --branch="${branch}"
+    $$ npx wrangler@2 pages publish "${directory}" --project-name="${projectName}" --branch="${branch}" --commit-dirty=${commitDirty}
     `;
     const response = await (0, import_undici.fetch)(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${projectName}/deployments`,
@@ -22094,67 +22095,44 @@ try {
     } = await response.json();
     return deployment;
   };
-  const createGitHubDeployment = async (productionEnvironment, environment) => {
-    const deployment = await octokit.rest.repos.createDeployment({
-      owner: import_github.context.repo.owner,
-      repo: import_github.context.repo.repo,
-      ref: import_github.context.ref,
-      auto_merge: false,
-      description: "Cloudflare Pages",
-      required_contexts: [],
-      environment,
-      production_environment: productionEnvironment
-    });
-    if (deployment.status === 201) {
-      return deployment.data;
-    }
-  };
-  const createGitHubDeploymentStatus = async ({
-    id,
-    url,
-    deploymentId,
-    environmentName,
-    productionEnvironment
-  }) => {
-    await octokit.rest.repos.createDeploymentStatus({
-      owner: import_github.context.repo.owner,
-      repo: import_github.context.repo.repo,
-      deployment_id: id,
-      environment: environmentName,
-      environment_url: url,
-      production_environment: productionEnvironment,
-      log_url: `https://dash.cloudflare.com/${accountId}/pages/view/${projectName}/${deploymentId}`,
-      description: "Cloudflare Pages",
-      state: "success"
-    });
-  };
   (async () => {
-    if (gitHubToken === "") {
-      return;
-    }
-    const project = await getProject();
-    const githubBranch = import_process.env.GITHUB_REF_NAME;
-    const productionEnvironment = githubBranch === project.production_branch;
-    let environmentName;
-    if (productionEnvironment) {
-      environmentName = "Production";
-    } else {
-      environmentName = `Preview (${githubBranch})`;
-    }
-    const gitHubDeployment = await createGitHubDeployment(productionEnvironment, environmentName);
     const pagesDeployment = await createPagesDeployment();
+    const alias = pagesDeployment.aliases?.[0] || pagesDeployment.url.replace(
+      pagesDeployment.short_id,
+      (branch || pagesDeployment.deployment_trigger.metadata.branch).toLowerCase().replace(/[^a-z\d]/g, "-")
+    );
     (0, import_core.setOutput)("id", pagesDeployment.id);
     (0, import_core.setOutput)("url", pagesDeployment.url);
     (0, import_core.setOutput)("environment", pagesDeployment.environment);
-    (0, import_core.setOutput)("alias", productionEnvironment ? pagesDeployment.url : pagesDeployment.aliases[0]);
-    if (gitHubDeployment) {
-      await createGitHubDeploymentStatus({
-        id: gitHubDeployment.id,
-        url: pagesDeployment.url,
-        deploymentId: pagesDeployment.id,
-        environmentName,
-        productionEnvironment
+    (0, import_core.setOutput)("alias", alias);
+    if (gitHubToken) {
+      const project = await getProject();
+      const productionEnvironment = branch === project.production_branch;
+      const environmentName = productionEnvironment ? deploymentName || pagesDeployment.environment : `${deploymentName || pagesDeployment.environment} (${branch})`;
+      const octokit = (0, import_github.getOctokit)(gitHubToken);
+      const gitHubDeployment = await octokit.rest.repos.createDeployment({
+        owner: import_github.context.repo.owner,
+        repo: import_github.context.repo.repo,
+        ref: import_github.context.ref,
+        auto_merge: false,
+        description: "Cloudflare Pages",
+        required_contexts: [],
+        environment: environmentName,
+        production_environment: productionEnvironment
       });
+      if (gitHubDeployment.status === 201) {
+        await octokit.rest.repos.createDeploymentStatus({
+          owner: import_github.context.repo.owner,
+          repo: import_github.context.repo.repo,
+          deployment_id: gitHubDeployment.data.id,
+          environment: environmentName,
+          environment_url: pagesDeployment.url,
+          production_environment: productionEnvironment,
+          log_url: `https://dash.cloudflare.com/${accountId}/pages/view/${projectName}/${pagesDeployment.id}`,
+          description: "Cloudflare Pages",
+          state: "success"
+        });
+      }
     }
   })();
 } catch (thrown) {
