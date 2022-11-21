@@ -22099,9 +22099,8 @@ try {
     const pagesDeployment = await createPagesDeployment();
     const alias = pagesDeployment.aliases?.[0] || pagesDeployment.url.replace(
       pagesDeployment.short_id,
-      (branch || pagesDeployment.deployment_trigger.metadata.branch).toLowerCase().replace(/\s+/g, "").replace(/[^a-z\d]/g, "-")
+      pagesDeployment.deployment_trigger.metadata.branch.toLowerCase().replace(/[^a-z\d]/g, "-")
     );
-    console.log({ aliases: pagesDeployment.aliases, branch, metadata: pagesDeployment.deployment_trigger.metadata, alias });
     (0, import_core.setOutput)("id", pagesDeployment.id);
     (0, import_core.setOutput)("url", pagesDeployment.url);
     (0, import_core.setOutput)("environment", pagesDeployment.environment);
